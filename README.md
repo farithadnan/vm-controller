@@ -164,8 +164,8 @@ Also logs IP rejections:
 - **Request Logging**: Every request is logged at entry point before any processing
 - No manual verification needed in endpoint code
 
-### 2. **Authentication Layer (VM Control Endpoints)**
-Applied automatically via dependency injection to `/start`, `/shutdown`, `/restart`:
+### 2. **Authentication Layer (Protected Endpoints)**
+Applied automatically via dependency injection to `/vm/list`, `/start`, `/shutdown`, `/restart`:
 
 **API Key (required)** - Client must send header:
 
@@ -224,6 +224,14 @@ Request:
 GET /vm/list
 ```
 
+Required Headers:
+
+```md
+x-api-key: <API_KEY>
+x-signature: <HMAC>
+x-timestamp: <timestamp>
+```
+
 Response:
 
 ```json
@@ -232,7 +240,7 @@ Response:
 }
 ```
 
-**Security**: IP whitelisting applied (if configured). No API key required for listing (can be modified if needed)
+**Security**: Full authentication required (API key + HMAC signature + IP whitelisting)
 
 ---
 

@@ -244,11 +244,17 @@ def health_check(request: Request):
         )
 
 @app.get("/vm/list")
-def list_vms(request: Request):
+async def list_vms(
+    request: Request,
+    authenticated: bool = Depends(verify_authentication)
+):
     """
     List all VMs.
     
-    No authentication required for listing (modify if needed).
+    Requires:
+    - x-api-key header
+    - x-signature header (HMAC)
+    - x-timestamp header
     """
     try:
         vms = get_all_vm_names()
