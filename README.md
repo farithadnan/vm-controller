@@ -27,10 +27,13 @@ This service integrates:
 - **Restart a VM (force)**
 - **API Key authentication**
 - **HMAC SHA-256 signature validation**
-- **IP address filtering**
+- **IP address filtering (applied to all endpoints)**
+- **Request logging at entry point (before authentication)**
 - **Audit logs for every action**
 - **JSON logs for programmatic use**
 - **Safe PowerShell execution with optional `-Confirm:$false`**
+- **Middleware-based security architecture**
+- **Dependency injection for clean code**
 
 ---
 
@@ -99,15 +102,17 @@ Or make it a Windows service using NSSM.
 
 # 📁 Logs
 
-The script automatically creates a logs directory:
+The script automatically creates a logs directory with two types of logs:
 
 ```md
 logs/
- ├─ audit.log   (forensic record of all actions)
- └─ app.log     (structured application events)
+ ├─ audit.log   (forensic record of all VM actions)
+ └─ app.log     (request entry logs + application events)
 ```
 
-`audit.log` example:
+## `audit.log` - VM Action Logs
+
+Records all VM operations (start, stop, restart):
 
 ```json
 {
@@ -119,17 +124,56 @@ logs/
   "details": "Restarting machine"
 }
 ```
+
+## `app.log` - Request & Application Logs
+
+**New Feature**: Logs every request at entry point (before authentication):
+
+```json
+{
+  "timestamp": "2025-12-03T10:30:15.123456",
+  "method": "POST",
+  "path": "/vm/UbuntuVM/start",
+  "client_ip": "192.168.1.20",
+  "status": "received",
+  "details": "Headers: {...}"
+}
+```
+
+Also logs IP rejections:
+
+```json
+{
+  "timestamp": "2025-12-03T10:31:00.000000",
+  "method": "GET",
+  "path": "/vm/list",
+  "client_ip": "192.168.1.99",
+  "status": "rejected",
+  "details": "IP 192.168.1.99 not in whitelist"
+}
+```
+
 ---
 
-# 🔒 Authentication Details
+# 🔒 Security Architecture
 
-**API Key (required)** - Client must send as its header request:
+## Three-Layer Security Model
+
+### 1. **Middleware Layer (All Endpoints)**
+- **IP Whitelisting**: Automatically applied to all endpoints via middleware
+- **Request Logging**: Every request is logged at entry point before any processing
+- No manual verification needed in endpoint code
+
+### 2. **Authentication Layer (VM Control Endpoints)**
+Applied automatically via dependency injection to `/start`, `/shutdown`, `/restart`:
+
+**API Key (required)** - Client must send header:
 
 ```sh
 x-api-key: YOUR_API_KEY
 ```
 
-**HMAC Signing (Recommended)** - Signature formula:
+**HMAC Signing (required)** - Signature formula:
 
 ```sh
 signature = HEX( HMAC_SHA256( HMAC_SECRET, body + timestamp ) )
@@ -141,11 +185,36 @@ Client must send:
 x-signature: <hex-hmac>
 x-timestamp: <unix timestamp or ISO>
 ```
-If HMAC is enabled in `.env`, both headers are required.
+
+### 3. **Authorization Layer**
+- VM existence validation
+- Audit logging of all actions
 
 ---
 
 # 📡 API Endpoints
+
+## Health Check
+
+Request:
+
+```bash
+GET /health
+```
+
+Response:
+
+```json
+{
+  "status": "healthy",
+  "vm_count": 3,
+  "timestamp": "2025-12-03T10:30:00.000000"
+}
+```
+
+**Security**: IP whitelisting applied (if configured)
+
+---
 
 ## List all VMs
 
@@ -153,14 +222,6 @@ Request:
 
 ```bash
 GET /vm/list
-```
-
-Required Headers:
-
-```md
-x-api-key: <API_KEY>
-x-signature: <HMAC>
-x-timestamp: <timestamp>
 ```
 
 Response:
@@ -171,7 +232,7 @@ Response:
 }
 ```
 
-**Headers required**: *None* (you can lock this down if you)
+**Security**: IP whitelisting applied (if configured). No API key required for listing (can be modified if needed)
 
 ---
 
@@ -273,6 +334,51 @@ Response:
 {
   "vm": "TestVM",
   "action": "restart",
-  "output": "VM restarted"
+  "output": "VM restarted",
+  "status": "success"
 }
 ```
+
+---
+
+# 🏗️ Architecture & Best Practices
+
+This API follows FastAPI best practices:
+
+## Middleware Pattern
+- **`IPVerificationMiddleware`**: Handles IP whitelisting and request logging for all endpoints automatically
+- Executes before any endpoint logic
+- Logs rejected requests with reasons
+
+## Dependency Injection
+- **`verify_authentication`**: Reusable dependency for API key + HMAC validation
+- Applied to protected endpoints via `Depends()`
+- Eliminates code duplication across endpoints
+
+## Benefits
+- **DRY (Don't Repeat Yourself)**: Security logic defined once, applied everywhere
+- **Maintainability**: Changes to auth logic only need updates in one place
+- **Separation of Concerns**: Middleware handles cross-cutting concerns, dependencies handle authentication
+- **Testability**: Each component can be tested independently
+
+---
+
+# 🔄 Changelog
+
+## v2.0.0 (Current)
+
+### Added
+- Middleware-based IP verification for all endpoints (/, /health, /vm/list, VM control endpoints)
+- Request logging at entry point before authentication
+- Dependency injection for authentication to eliminate repetitive code
+- Enhanced logging with request status tracking
+
+### Changed
+- Refactored authentication flow using FastAPI dependencies
+- IP verification now automatic via middleware
+- Improved log structure with entry-point tracking
+
+### Benefits
+- Cleaner, more maintainable code
+- Better security visibility (all requests logged at entry)
+- Follows FastAPI best practices

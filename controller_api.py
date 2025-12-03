@@ -6,7 +6,9 @@ import subprocess
 from typing import Optional
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Request, Depends
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 # ==============================
@@ -21,12 +23,6 @@ if not API_KEY:
     raise ValueError("API_KEY must be set in .env file")
 if not HMAC_SECRET:
     raise ValueError("HMAC_SECRET must be set in .env file")
-
-app = FastAPI(
-    title="VM Controller API",
-    description="Remote control for Hyper-V virtual machines",
-    version="1.0.0"
-)
 
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -56,6 +52,20 @@ def write_json_log(data: dict):
     """Write application log entry."""
     with open(APP_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(data) + "\n")
+
+
+def log_request_entry(request: Request, status: str = "received", details: str = ""):
+    """Log request at entry point before any verification."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "method": request.method,
+        "path": request.url.path,
+        "client_ip": request.client.host,
+        "status": status,
+        "details": details,
+    }
+    with open(APP_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry) + "\n")
 
 # ==============================
 #  Helper to run PowerShell (no prompts)
@@ -100,17 +110,28 @@ def verify_key(x_api_key: Optional[str]):
 
 
 # ==============================
-#  Verify IP (optional)
+#  Middleware for IP verification and request logging
 # ==============================
-def verify_ip(request: Request):
-    """Verify client IP address if ALLOW_IP is configured."""
-    if ALLOW_IP:
-        client_ip = request.client.host
-        if client_ip != ALLOW_IP:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Forbidden: IP {client_ip} not allowed"
-            )
+class IPVerificationMiddleware(BaseHTTPMiddleware):
+    """Middleware to verify IP and log all requests at entry point."""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Log request at entry point
+        log_request_entry(request, "received", f"Headers: {dict(request.headers)}")
+        
+        # Verify IP if configured
+        if ALLOW_IP:
+            client_ip = request.client.host
+            if client_ip != ALLOW_IP:
+                log_request_entry(request, "rejected", f"IP {client_ip} not in whitelist")
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"Forbidden: IP {client_ip} not allowed"}
+                )
+        
+        # Process request
+        response = await call_next(request)
+        return response
 
 
 # ==============================
@@ -157,12 +178,42 @@ def validate_vm(vm_name: str):
         )
 
 
+# ==============================
+#  Dependencies for authentication
+# ==============================
+async def verify_authentication(
+    x_api_key: Optional[str] = Header(None),
+    x_signature: Optional[str] = Header(None),
+    x_timestamp: Optional[str] = Header(None),
+    request: Request = None
+):
+    """Dependency to verify API key and HMAC signature."""
+    verify_key(x_api_key)
+    
+    raw_body = await request.body()
+    verify_hmac_signature(x_signature, x_timestamp, raw_body)
+    
+    return True
+
+
+# ==============================
+#  Initialize FastAPI app
+# ==============================
+app = FastAPI(
+    title="VM Controller API",
+    description="Remote control for Hyper-V virtual machines",
+    version="1.0.0"
+)
+
+# Add middleware for IP verification and logging
+app.add_middleware(IPVerificationMiddleware)
+
 
 # ==============================
 #  API ENDPOINTS
 # ==============================
 @app.get("/")
-def root():
+def root(request: Request):
     """API root endpoint."""
     return {
         "service": "VM Controller API",
@@ -177,7 +228,7 @@ def root():
     }
 
 @app.get("/health")
-def health_check():
+def health_check(request: Request):
     """Health check endpoint."""
     try:
         vms = get_all_vm_names()
@@ -205,10 +256,18 @@ def list_vms(request: Request):
             "timestamp": datetime.utcnow().isoformat(),
             "action": "list",
             "client_ip": request.client.host,
+            "status": "success",
             "result": vms
         })
         return {"vms": vms}
     except Exception as e:
+        write_json_log({
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": "list",
+            "client_ip": request.client.host,
+            "status": "error",
+            "details": str(e)
+        })
         raise HTTPException(
             status_code=500,
             detail=f"Failed to list VMs: {str(e)}"
@@ -219,9 +278,7 @@ def list_vms(request: Request):
 async def shutdown_vm(
     vm_name: str,
     request: Request,
-    x_api_key: Optional[str] = Header(None),
-    x_signature: Optional[str] = Header(None),
-    x_timestamp: Optional[str] = Header(None)
+    authenticated: bool = Depends(verify_authentication)
 ):
     """
     Shutdown (stop) a VM.
@@ -232,12 +289,6 @@ async def shutdown_vm(
     - x-timestamp header
     """
     try:
-        verify_ip(request)
-        verify_key(x_api_key)
-
-        raw_body = await request.body()
-        verify_hmac_signature(x_signature, x_timestamp, raw_body)
-
         validate_vm(vm_name)
 
         output = run_powershell(f'Stop-VM -Name "{vm_name}" -Force', force_no_confirm=True)
@@ -270,9 +321,7 @@ async def shutdown_vm(
 async def start_vm(
     vm_name: str,
     request: Request,
-    x_api_key: Optional[str] = Header(None),
-    x_signature: Optional[str] = Header(None),
-    x_timestamp: Optional[str] = Header(None)
+    authenticated: bool = Depends(verify_authentication)
 ):
     """
     Start a VM.
@@ -283,12 +332,6 @@ async def start_vm(
     - x-timestamp header
     """
     try:
-        verify_ip(request)
-        verify_key(x_api_key)
-
-        raw_body = await request.body()
-        verify_hmac_signature(x_signature, x_timestamp, raw_body)
-
         validate_vm(vm_name)
 
         output = run_powershell(f'Start-VM -Name "{vm_name}"', force_no_confirm=True)
@@ -321,9 +364,7 @@ async def start_vm(
 async def restart_vm(
     vm_name: str,
     request: Request,
-    x_api_key: Optional[str] = Header(None),
-    x_signature: Optional[str] = Header(None),
-    x_timestamp: Optional[str] = Header(None)
+    authenticated: bool = Depends(verify_authentication)
 ):
     """
     Restart a VM.
@@ -334,12 +375,6 @@ async def restart_vm(
     - x-timestamp header
     """
     try:
-        verify_ip(request)
-        verify_key(x_api_key)
-
-        raw_body = await request.body()
-        verify_hmac_signature(x_signature, x_timestamp, raw_body)
-
         validate_vm(vm_name)
 
         output = run_powershell(f'Restart-VM -Name "{vm_name}" -Force', force_no_confirm=True)
