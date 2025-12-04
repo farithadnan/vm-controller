@@ -154,6 +154,30 @@ The guide covers:
 
 ---
 
+# 🧪 Testing
+
+This project includes a comprehensive test suite.
+
+```powershell
+# Install test dependencies
+pip install pytest pytest-asyncio pytest-cov httpx
+
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage report
+pytest tests/ --cov=controller_api --cov-report=html
+```
+
+**📖 Complete Testing Guide**: See **[tests/TEST_GUIDE.md](tests/TEST_GUIDE.md)** for:
+- Test structure and categories (unit, integration, edge cases)
+- Writing new tests
+- Debugging failed tests
+- CI/CD integration examples
+- Coverage details by component
+
+---
+
 # 📁 Logs
 
 The script automatically creates a logs directory with **two separate log files** for different purposes:

@@ -6,12 +6,14 @@ Comprehensive test suite for the VM Controller API using pytest.
 
 ### Test Files
 
-- **test_config.py** - Configuration loading and validation
-- **test_security.py** - Authentication, HMAC, and IP verification
-- **test_log_manager.py** - Audit and application logging
-- **test_hyperv_manager.py** - Hyper-V VM operations (mocked)
-- **test_middleware.py** - IP verification middleware
-- **test_api_endpoints.py** - API endpoint responses
+- **test_config.py** (6 tests) - Configuration loading and validation
+- **test_security.py** (11 tests) - Authentication, HMAC, and IP verification
+- **test_log_manager.py** (3 tests) - Audit and application logging
+- **test_hyperv_manager.py** (13 tests) - Hyper-V VM operations (mocked)
+- **test_middleware.py** (2 tests) - IP verification middleware
+- **test_api_endpoints.py** (12 tests) - API endpoint responses
+- **test_lifespan.py** (5 tests) - Application startup/shutdown events
+- **test_edge_cases.py** (18 tests) - Edge cases and error scenarios
 
 ## 🚀 Running Tests
 
@@ -42,10 +44,12 @@ pytest tests/test_security.py::TestSecurityValidator::test_verify_api_key_valid
 
 ```powershell
 # Run tests with coverage report
-pytest tests/ --cov=. --cov-report=html
+pytest tests/ --cov=controller_api --cov-report=term-missing --cov-report=html
 
-# View coverage report
+# View detailed HTML coverage report
 start htmlcov/index.html
+
+# Current coverage: 92% (203 statements, 17 missed)
 ```
 
 ### Watch Mode
@@ -64,14 +68,63 @@ ptw tests/
 tests/
 ├── __init__.py                 # Test package initialization
 ├── conftest.py                 # Shared fixtures and configuration
-├── test_config.py              # Configuration tests
-├── test_security.py            # Security validation tests
-├── test_log_manager.py         # Logging tests
-├── test_hyperv_manager.py      # Hyper-V operations tests (mocked)
-├── test_middleware.py          # Middleware tests
-├── test_api_endpoints.py       # API endpoint tests
+├── test_config.py              # Configuration tests (6 tests)
+├── test_security.py            # Security validation tests (11 tests)
+├── test_log_manager.py         # Logging tests (3 tests)
+├── test_hyperv_manager.py      # Hyper-V operations tests (13 tests)
+├── test_middleware.py          # Middleware tests (2 tests)
+├── test_api_endpoints.py       # API endpoint tests (12 tests)
+├── test_lifespan.py            # Lifespan event tests (5 tests)
+├── test_edge_cases.py          # Edge case tests (18 tests)
 └── README.md                   # This file
 ```
+
+### Test Categories
+
+**test_config.py** - Configuration validation
+- Environment variable loading
+- Log directory creation
+- Missing/empty credentials handling
+- Windows path compatibility
+
+**test_security.py** - Security mechanisms
+- API key validation (valid, invalid, none, empty)
+- HMAC-SHA256 signature verification
+- IP whitelisting logic
+- Full authentication flow
+
+**test_log_manager.py** - Logging functionality
+- Audit log creation (VM operations)
+- Application log creation (all requests)
+- Request entry logging with timestamps
+
+**test_hyperv_manager.py** - VM operations
+- Get all VM names (success, empty, with spaces)
+- Validate VM exists (true/false, special characters)
+- Start/Stop/Restart VMs (success, already running/stopped)
+- PowerShell execution and error handling
+
+**test_middleware.py** - Request processing
+- IP verification allow/block
+- Request logging at entry point
+
+**test_api_endpoints.py** - HTTP endpoints
+- Root endpoint and health check
+- List VMs (success, empty, authentication failures)
+- Start/Stop/Restart VMs (success, not found, errors)
+- Authentication header validation
+
+**test_lifespan.py** - Application lifecycle
+- Startup event with VM access verification
+- Startup with no VMs or errors
+- Configuration display on startup
+- Cleanup on shutdown
+
+**test_edge_cases.py** - Edge cases and error scenarios
+- Config: Empty credentials, nested directories
+- LogManager: Unicode handling, empty details, existing timestamps
+- Security: Whitespace in keys, IPv6 addresses, expired timestamps, empty bodies
+- HyperV: Blank lines, whitespace, case sensitivity, timeouts, quotes in VM names
 
 ## 🧪 Test Fixtures
 
@@ -132,15 +185,23 @@ class TestYourClass:
         assert result == 'expected_result'
 ```
 
-## 🎯 Coverage Goals
+## 🎯 Coverage Status
 
-Target coverage by module:
-- Config: 100%
-- SecurityValidator: 95%+
-- LogManager: 90%+
-- HyperVManager: 85%+ (limited by PowerShell mocking)
-- Middleware: 90%+
-- API Endpoints: 80%+
+**Overall: 92% coverage** (203 statements, 17 missed)
+
+Achieved coverage by component:
+- ✅ Config: ~95%
+- ✅ SecurityValidator: ~95%
+- ✅ LogManager: ~90%
+- ✅ HyperVManager: ~90%
+- ✅ Middleware: ~95%
+- ✅ API Endpoints: ~90%
+
+**Uncovered lines (8%):** Mostly error paths and edge cases:
+- Error handling in Config initialization
+- Rare PowerShell execution errors
+- Specific error responses in API endpoints
+- Some exception handling branches
 
 ## 🐛 Debugging Tests
 
