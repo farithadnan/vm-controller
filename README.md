@@ -67,6 +67,20 @@ This design removes the need to expose PowerShell Remoting or SMB shares and giv
 
 ---
 
+# 📂 Project Files
+
+```
+vm-controller/
+├── controller_api.py              # Original procedural version
+├── README.md                      # This file
+├── .env                          # Configuration (create this)
+└── logs/                         # Auto-created
+    ├── audit.log                 # VM operation logs
+    └── app.log                   # Request/application logs
+```
+
+---
+
 # 🔐 `.env` Configuration
 
 Create a file named `.env` in the same directory as the script:
@@ -90,29 +104,50 @@ ALLOW_IP=192.168.x.x
 
 # 🚀 Running the Server
 
-Start the API on Computer B:
+This project includes **two versions** of the same API:
 
+## Option 1: Original (Procedural)
 ```sh
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn controller_api:app --host 0.0.0.0 --port 8000
 ```
+**Use when**: Learning, quick prototyping, simple deployment
 
-Or make it a Windows service using NSSM.
+## Option 2: Refactored (Object-Oriented)
+```sh
+uvicorn controller_api_refactored:app --host 0.0.0.0 --port 8000
+```
+**Use when**: Production, team projects, extensive testing needed
+
+Both versions have **identical functionality**. See `OOP_REFACTORING_GUIDE.md` for details.
+
+You can also make it a Windows service using NSSM.
 
 ---
 
 # 📁 Logs
 
-The script automatically creates a logs directory with two types of logs:
+The script automatically creates a logs directory with **two separate log files** for different purposes:
 
 ```md
 logs/
- ├─ audit.log   (forensic record of all VM actions)
- └─ app.log     (request entry logs + application events)
+ ├─ audit.log   (forensic record of VM operations only)
+ └─ app.log     (all API requests and application events)
 ```
 
-## `audit.log` - VM Action Logs
+## Understanding the Two Logging Methods
 
-Records all VM operations (start, stop, restart):
+### 🎯 `write_audit()` → `audit.log`
+
+**Purpose**: Compliance and forensic tracking of **VM state changes only**
+
+**When to use**: Only logs actual VM operations (start, stop, restart)
+
+**Why separate?**: 
+- Legal/compliance requirements to track infrastructure changes
+- Audit who changed what VM and when
+- Separate from general access logs for security analysis
+
+**Example entry**:
 
 ```json
 {
