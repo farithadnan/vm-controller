@@ -45,6 +45,7 @@ def mock_request():
     request.client.host = '192.168.1.100'
     request.method = 'GET'
     request.url.path = '/test'
+    request.headers = {}  # Add headers attribute
     return request
 
 
