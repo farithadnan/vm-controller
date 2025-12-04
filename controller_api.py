@@ -4,7 +4,8 @@ import json
 import hashlib
 import subprocess
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Request, Depends
 from fastapi.responses import JSONResponse
@@ -58,7 +59,7 @@ class LogManager:
     def write_audit(self, action: str, vm: str, ip: str, status: str, details: str = ""):
         """Write audit log entry for VM operations."""
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": action,
             "vm": vm,
             "client_ip": ip,
@@ -70,13 +71,13 @@ class LogManager:
     def write_app_log(self, data: dict):
         """Write application log entry."""
         if "timestamp" not in data:
-            data["timestamp"] = datetime.utcnow().isoformat()
+            data["timestamp"] = datetime.now(timezone.utc).isoformat()
         self._write_to_file(self.config.app_log_path, data)
     
     def log_request_entry(self, request: Request, status: str = "received", details: str = ""):
         """Log request at entry point before any verification."""
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "method": request.method,
             "path": request.url.path,
             "client_ip": request.client.host,
@@ -277,12 +278,46 @@ async def verify_authentication(
 
 
 # ==============================
+#  Lifespan Event Handler
+# ==============================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events."""
+    # Startup
+    print("=" * 60)
+    print("VM Controller API Started (OOP Version)")
+    print("=" * 60)
+    print(f"API Key configured: {'✓' if config.api_key else '✗'}")
+    print(f"HMAC Secret configured: {'✓' if config.hmac_secret else '✗'}")
+    print(f"IP Whitelisting: {'Enabled (' + config.allow_ip + ')' if config.allow_ip else 'Disabled'}")
+    print(f"Logging directory: {config.log_dir}")
+    print("=" * 60)
+    
+    # Test VM access
+    try:
+        vms = hyperv_manager.get_all_vm_names()
+        print(f"✓ Hyper-V access verified - {len(vms)} VMs found")
+        if vms:
+            print(f"  Available VMs: {', '.join(vms)}")
+    except Exception as e:
+        print(f"✗ Hyper-V access error: {e}")
+    
+    print("=" * 60)
+    
+    yield
+    
+    # Shutdown (if needed)
+    # print("Shutting down...")
+
+
+# ==============================
 #  Initialize FastAPI app
 # ==============================
 app = FastAPI(
     title="VM Controller API",
     description="Remote control for Hyper-V virtual machines",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Add middleware for IP verification and logging
@@ -319,7 +354,7 @@ def health_check(request: Request):
         return {
             "status": "healthy",
             "vm_count": len(vms),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         raise HTTPException(
@@ -486,33 +521,6 @@ async def restart_vm(
             status_code=500,
             detail=f"Failed to restart VM: {str(e)}"
         )
-
-
-# ==============================
-#  Startup message
-# ==============================
-@app.on_event("startup")
-async def startup_event():
-    """Log startup information."""
-    print("=" * 60)
-    print("VM Controller API Started (OOP Version)")
-    print("=" * 60)
-    print(f"API Key configured: {'✓' if config.api_key else '✗'}")
-    print(f"HMAC Secret configured: {'✓' if config.hmac_secret else '✗'}")
-    print(f"IP Whitelisting: {'Enabled (' + config.allow_ip + ')' if config.allow_ip else 'Disabled'}")
-    print(f"Logging directory: {config.log_dir}")
-    print("=" * 60)
-    
-    # Test VM access
-    try:
-        vms = hyperv_manager.get_all_vm_names()
-        print(f"✓ Hyper-V access verified - {len(vms)} VMs found")
-        if vms:
-            print(f"  Available VMs: {', '.join(vms)}")
-    except Exception as e:
-        print(f"✗ Hyper-V access error: {e}")
-    
-    print("=" * 60)
 
 
 if __name__ == "__main__":

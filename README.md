@@ -120,7 +120,37 @@ uvicorn controller_api_refactored:app --host 0.0.0.0 --port 8000
 
 Both versions have **identical functionality**. See `OOP_REFACTORING_GUIDE.md` for details.
 
-You can also make it a Windows service using NSSM.
+---
+
+# 📦 Deployment
+
+## Deployment Options
+
+### Option 1: Windows Service (Recommended for Production)
+Runs as a Windows service with auto-restart, auto-start on boot, and better reliability:
+```powershell
+cd deploy
+powershell -ExecutionPolicy Bypass -File install_service.ps1
+```
+
+### Option 2: Standalone Executable
+Create a portable `.exe` file that can run without Python installed:
+```powershell
+cd deploy
+pyinstaller vm_controller.spec
+# Output: deploy/dist/vm_controller/vm_controller.exe
+```
+
+### 📖 Complete Guide
+For detailed instructions, troubleshooting, and all deployment methods, see:
+**[Deployment Guide](deploy/DEPLOYMENT_GUIDE.md)**
+
+The guide covers:
+- ✅ Windows Service installation (NSSM) - auto-start, auto-restart
+- ✅ Creating standalone executables (PyInstaller) - portable, no Python needed
+- ✅ Startup configuration (Task Scheduler, Startup folder)
+- ✅ Service management and troubleshooting
+- ✅ Remote access configuration
 
 ---
 
