@@ -21,7 +21,9 @@ class Config:
         load_dotenv()
         self.api_key = os.getenv("API_KEY")
         self.hmac_secret = os.getenv("HMAC_SECRET")
-        self.allow_ip = os.getenv("ALLOW_IP")
+        # Support multiple IPs: "192.168.1.10,192.168.1.20" or single IP
+        allow_ip_raw = os.getenv("ALLOW_IP", "")
+        self.allow_ip = [ip.strip() for ip in allow_ip_raw.split(",") if ip.strip()] if allow_ip_raw else []
         self.log_dir = "logs"
         
         self._validate()
@@ -268,12 +270,12 @@ class SecurityValidator:
             )
     
     def verify_ip(self, client_ip: str) -> bool:
-        """Verify client IP against whitelist."""
-        if self.config.allow_ip:
-            if client_ip != self.config.allow_ip:
+        """Verify client IP against whitelist (supports multiple IPs)."""
+        if self.config.allow_ip:  # If whitelist is configured
+            if client_ip not in self.config.allow_ip:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Forbidden: IP {client_ip} not allowed"
+                    detail=f"Forbidden: IP {client_ip} not in allowed list"
                 )
         return True
     
