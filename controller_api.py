@@ -372,7 +372,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
     print(f"API Key configured: {'✓' if config.api_key else '✗'}")
     print(f"HMAC Secret configured: {'✓' if config.hmac_secret else '✗'}")
-    print(f"IP Whitelisting: {'Enabled (' + config.allow_ip + ')' if config.allow_ip else 'Disabled'}")
+    print(f"IP Whitelisting: {'Enabled (' + ', '.join(config.allow_ip) + ')' if config.allow_ip else 'Disabled'}")
     print(f"Logging directory: {config.log_dir}")
     print("=" * 60)
     
