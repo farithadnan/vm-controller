@@ -12,60 +12,101 @@ Run as a Windows service (more reliable, auto-restart, runs before login)
 
 ## 📦 Option 1: PyInstaller Executable
 
-### Step 1: Install PyInstaller
-```powershell
-pip install pyinstaller
-```
+### Quick Build (Recommended)
 
-### Step 2: Create Spec File
-I've created `vm_controller.spec` for you. This handles all dependencies.
+**The easiest way to build:** Just run the automated build script!
 
-### Step 3: Build the Executable
 ```powershell
 # Navigate to deploy directory
 cd <your-project-path>\deploy
 
-# Build with spec file
-pyinstaller vm_controller.spec
+# Build with automatic version increment (patch: 1.0.0 → 1.0.1)
+.\build.ps1
 
-# Output will be in deploy/dist/vm_controller/vm_controller.exe
+# Or specify version type:
+.\build.ps1 -VersionType patch   # 1.0.1 → 1.0.2
+.\build.ps1 -VersionType minor   # 1.0.2 → 1.1.0
+.\build.ps1 -VersionType major   # 1.1.0 → 2.0.0
+
+# Output: deploy/dist/vm_controller.exe (single portable file)
+```
+
+**What the build script does automatically:**
+- ✅ Increments version number (semantic versioning)
+- ✅ Updates `version.txt`
+- ✅ Logs build history with timestamps
+- ✅ Runs PyInstaller with optimized settings
+- ✅ Creates single portable `.exe` (no dependencies needed)
+- ✅ Shows colored build progress
+
+**Build Output:**
+- `dist/vm_controller.exe` - Single portable executable
+- `dist/version_history.txt` - Build history log
+- `version.txt` - Current version number
+
+### Manual Build (Advanced)
+
+If you need to build manually:
+
+```powershell
+# Install PyInstaller (first time only)
+pip install pyinstaller
+
+# Build with spec file
+cd <your-project-path>\deploy
+pyinstaller vm_controller.spec --noconfirm --clean
 ```
 
 **Note:** You'll see warnings during build - these are normal and safe:
-- ⚠️ Pydantic V1 compatibility warning → Ignore (you're using V2)
 - ⚠️ `api-ms-win-crt-*.dll` not found → Ignore (built into Windows)
-- ⚠️ `tzdata` not found → Ignore (built into Python 3.9+)
+- ⚠️ Other DLL warnings → Safe to ignore
 
-As long as you see `✅ Build complete!` at the end, the executable is working fine.
+As long as you see `Build successful!` at the end, the executable is working fine.
 
-### Step 4: Test the Executable
+### Test the Executable
 ```powershell
-cd dist\vm_controller
+cd dist
 .\vm_controller.exe
 
-# Note: The executable expects .env file in its directory
-# Copy .env from project root if needed:
-# Copy-Item "..\..\..\..env" -Destination ".env"
+# First run: Interactive setup will prompt for credentials
+# - API_KEY (can auto-generate)
+# - HMAC_SECRET (can auto-generate)
+# - ALLOW_IPS (comma-separated, or * for all)
+
+# Credentials are encrypted and saved to config/credentials.dat
+# Logs will be saved to data/logs/
 ```
 
-### Step 5: Add to Windows Startup
+**Folder structure after first run:**
+```
+vm_controller.exe       # Single portable executable
+├── config/
+│   └── credentials.dat # Encrypted credentials (Windows DPAPI)
+└── data/
+    └── logs/
+        ├── app.log     # Application logs
+        └── audit.log   # VM operation audit trail
+```
+
+### Add to Windows Startup
 
 #### Method A: Startup Folder (Current User)
 ```powershell
 # Create shortcut in startup folder
-$projectPath = "<your-project-path>"  # e.g., C:\Projects\vm-controller
+$exePath = "C:\Path\To\vm_controller.exe"  # Update with your exe location
 $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\VM Controller.lnk")
-$Shortcut.TargetPath = "$projectPath\deploy\dist\vm_controller\vm_controller.exe"
-$Shortcut.WorkingDirectory = "$projectPath\deploy\dist\vm_controller"
+$Shortcut.TargetPath = $exePath
+$Shortcut.WorkingDirectory = Split-Path $exePath
 $Shortcut.Save()
 ```
 
 #### Method B: Task Scheduler (Runs as Administrator)
 ```powershell
 # Run this PowerShell as Administrator
-$projectPath = "<your-project-path>"  # e.g., C:\Projects\vm-controller
-$action = New-ScheduledTaskAction -Execute "$projectPath\deploy\dist\vm_controller\vm_controller.exe" -WorkingDirectory "$projectPath\deploy\dist\vm_controller"
+$exePath = "C:\Path\To\vm_controller.exe"  # Update with your exe location
+$workingDir = Split-Path $exePath
+$action = New-ScheduledTaskAction -Execute $exePath -WorkingDirectory $workingDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -220,10 +261,35 @@ powershell -ExecutionPolicy Bypass -File install_service.ps1
 ```
 
 ---
-
 ## 🚀 Quick Start Guide
 
-### Recommended: NSSM Service
+### Fastest Way: Build Executable
+
+1. **Build the executable** (automated with versioning)
+   ```powershell
+   cd <your-project-path>\deploy
+   .\build.ps1
+   ```
+
+2. **Run the executable**
+   ```powershell
+   cd dist
+   .\vm_controller.exe
+   ```
+
+3. **First-time setup** (interactive prompts)
+   - Enter API_KEY (or press Enter to auto-generate)
+   - Enter HMAC_SECRET (or press Enter to auto-generate)
+   - Enter ALLOW_IPS (comma-separated IPs, or * for all)
+
+4. **Access the API**
+   ```
+   http://localhost:8000/docs
+   ```
+
+Done! Your API is running. To make it start automatically, see the startup methods below.
+
+### Alternative: NSSM Service (For Auto-Start)
 
 1. **Download NSSM** (if not already installed)
    ```powershell
@@ -244,6 +310,7 @@ powershell -ExecutionPolicy Bypass -File install_service.ps1
    Invoke-WebRequest -Uri "http://localhost:8000/health"
    ```
 
+Done! Your API will now start automatically on Windows boot.
 Done! Your API will now start automatically on Windows boot.
 
 ---
@@ -271,19 +338,22 @@ python -m uvicorn controller_api:app --host 0.0.0.0 --port 8000
 Get-Command python | Select-Object -ExpandProperty Source
 
 # Update service with correct path
-nssm set VMControllerAPI Application "C:\Path\To\Python\python.exe"
-nssm restart VMControllerAPI
-```
+## 📊 Comparison
 
-### Permission Errors
-```powershell
-# Make sure running as Administrator
-# Make sure .env file has correct API_KEY and HMAC_SECRET
-# Make sure Hyper-V permissions are set
-```
+| Feature | PyInstaller | NSSM Service |
+|---------|-------------|--------------|
+| **Build Process** | ✅ Automated script | Manual setup |
+| **Portability** | ✅ Single .exe file | Requires Python |
+| **Version Tracking** | ✅ Automatic | Manual |
+| **Auto-start** | After login | Before login |
+| **Restart on crash** | No | ✅ Yes |
+| **Logging** | Built-in (data/logs/) | Service logs |
+| **Management** | Manual | Windows Services |
+| **Installation** | ✅ Just run .exe | Requires NSSM |
+| **Updates** | ✅ `.\build.ps1` | Restart service |
+| **Best for** | ✅ **Recommended** | Production servers |
 
-### Port Already in Use
-```powershell
+**Recommendation**: Use **PyInstaller** for easy deployment with automated builds and version tracking. Use **NSSM** only if you need service-level features (auto-restart, system service).
 # Find process using port 8000
 netstat -ano | findstr :8000
 
@@ -298,30 +368,38 @@ nssm restart VMControllerAPI
 ---
 
 ## 📊 Comparison
+## 🔄 Updating the Application
 
-| Feature | PyInstaller | NSSM Service |
-|---------|-------------|--------------|
-| **Auto-start** | After login | Before login |
-| **Restart on crash** | No | Yes |
-| **Logging** | Manual | Automatic |
-| **Management** | Manual | Windows Services |
-| **Installation** | Complex | Simple |
-| **Updates** | Rebuild exe | Just restart |
-| **Best for** | Portable apps | Server/Production |
+When you update your code:
 
-**Recommendation**: Use **NSSM** for production/server use. Use **PyInstaller** if you need a portable executable.
+### PyInstaller Executable:
+```powershell
+# Navigate to deploy folder
+cd <your-project-path>\deploy
 
----
+# Rebuild with automatic version increment
+.\build.ps1               # Patch: 1.0.1 → 1.0.2
+.\build.ps1 -VersionType minor  # Minor: 1.0.2 → 1.1.0
+.\build.ps1 -VersionType major  # Major: 1.1.0 → 2.0.0
 
-## 🎯 Final Checklist
+# New executable in dist/vm_controller.exe
+# Replace old executable with new one
+# Restart if running
+```
 
-After installation:
-- [ ] Service shows as "Running" in Services
-- [ ] Can access http://localhost:8000/
-- [ ] Can access http://localhost:8000/health
-- [ ] Logs are being written to logs/ directory
-- [ ] Service survives reboot (restart computer and check)
-- [ ] API responds to authenticated requests
+### NSSM Service:
+```powershell
+# Stop service
+nssm stop VMControllerAPI
+
+# Update your code
+git pull  # or rebuild executable
+
+# Start service
+nssm start VMControllerAPI
+```
+
+**Version History:** Check `dist/version_history.txt` to see all builds with timestamps. ] API responds to authenticated requests
 
 ---
 
