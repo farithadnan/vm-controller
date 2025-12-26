@@ -928,7 +928,7 @@ if __name__ == "__main__":
     def interactive_setup(creds_manager: CredentialsManager) -> dict:
         """Interactive setup to collect credentials on first run."""
         print("\n" + "=" * 70)
-        print("🔧 VM CONTROLLER - FIRST-TIME SETUP")
+        print("VM CONTROLLER - FIRST-TIME SETUP")
         print("=" * 70)
         print("\nWelcome! Let's configure your VM Controller API.\n")
         print("Your credentials will be encrypted and stored securely using")
@@ -936,7 +936,7 @@ if __name__ == "__main__":
         print("=" * 70 + "\n")
         
         # Get API Key
-        print("1️⃣  API KEY")
+        print("[1] API KEY")
         print("-" * 70)
         print("This key is used to authenticate API requests.")
         print("Recommended: Leave empty to generate a secure random key.\n")
@@ -949,7 +949,7 @@ if __name__ == "__main__":
             print(f"✓ Using your key: {api_key}\n")
         
         # Get HMAC Secret
-        print("2️⃣  HMAC SECRET")
+        print("[2] HMAC SECRET")
         print("-" * 70)
         print("This secret is used to sign and verify requests.")
         print("Recommended: Leave empty to generate a secure random secret.\n")
@@ -962,7 +962,7 @@ if __name__ == "__main__":
             print(f"✓ Using your secret: {hmac_secret}\n")
         
         # Get IP Whitelist
-        print("3️⃣  IP WHITELIST")
+        print("[3] IP WHITELIST")
         print("-" * 70)
         print("Restrict API access to specific IP addresses (optional).\n")
         print("Examples:")
@@ -975,27 +975,27 @@ if __name__ == "__main__":
         allow_ips = [ip.strip() for ip in allow_ip_input.split(",") if ip.strip()]
         
         if allow_ips:
-            print(f"✓ Allowed IPs: {', '.join(allow_ips)}\n")
+            print(f"[OK] Allowed IPs: {', '.join(allow_ips)}\n")
         else:
-            print("⚠️  Warning: All IPs are allowed (any IP can access the API)\n")
+            print("[WARNING] All IPs are allowed (any IP can access the API)\n")
         
         # Save credentials
         print("=" * 70)
-        print("💾 SAVING CONFIGURATION")
+        print("SAVING CONFIGURATION")
         print("=" * 70)
         print("\nEncrypting and saving credentials...")
         
         try:
             creds_manager.save_credentials(api_key, hmac_secret, allow_ips)
-            print("✅ Credentials saved successfully!\n")
+            print("[SUCCESS] Credentials saved successfully!\n")
         except Exception as e:
-            print(f"❌ Error saving credentials: {e}\n")
+            print(f"[ERROR] Error saving credentials: {e}\n")
             input("Press Enter to exit...")
             sys.exit(1)
         
         # Show summary
         print("=" * 70)
-        print("📋 CONFIGURATION SUMMARY")
+        print("CONFIGURATION SUMMARY")
         print("=" * 70)
         print(f"\n  API_KEY:     {api_key}")
         print(f"  HMAC_SECRET: {hmac_secret}")
@@ -1004,7 +1004,7 @@ if __name__ == "__main__":
         else:
             print(f"  ALLOWED_IPS: (all IPs allowed)")
         print("\n" + "=" * 70)
-        print("⚠️  IMPORTANT: Save these credentials in a secure location!")
+        print("[IMPORTANT] Save these credentials in a secure location!")
         print("=" * 70)
         print("\nYour credentials are encrypted in: config/credentials.dat")
         print("This file is tied to your Windows user account.")
@@ -1021,7 +1021,7 @@ if __name__ == "__main__":
     try:
         version = get_version()
         print("=" * 70)
-        print(f"🚀 VM CONTROLLER API v{version}")
+        print(f"VM CONTROLLER API v{version}")
         print("=" * 70)
         print(f"Working directory: {os.getcwd()}")
         
@@ -1030,16 +1030,16 @@ if __name__ == "__main__":
         
         # Check if credentials exist
         if not creds_manager.credentials_exist() and not os.path.exists(".env"):
-            print("\n⚠️  No credentials found. Starting first-time setup...\n")
+            print("\n[WARNING] No credentials found. Starting first-time setup...\n")
             interactive_setup(creds_manager)
-            print("\n✓ Setup complete!")
+            print("\n[OK] Setup complete!")
         elif creds_manager.credentials_exist():
-            print("✓ Encrypted credentials found (config/credentials.dat)")
+            print("[OK] Encrypted credentials found (config/credentials.dat)")
         elif os.path.exists(".env"):
-            print("✓ Configuration file found (.env)")
+            print("[OK] Configuration file found (.env)")
         
         # Check if Hyper-V is available
-        print("\n🔍 Checking Hyper-V availability...")
+        print("\nChecking Hyper-V availability...")
         test_result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", "Get-Command Get-VM"],
             capture_output=True,
@@ -1048,7 +1048,7 @@ if __name__ == "__main__":
         
         if test_result.returncode != 0:
             print("\n" + "=" * 70)
-            print("❌ WARNING: Hyper-V PowerShell module not found!")
+            print("[WARNING] Hyper-V PowerShell module not found!")
             print("=" * 70)
             print("\nThis computer may not have Hyper-V installed.")
             print("The API will start but VM operations will fail.")
@@ -1062,10 +1062,10 @@ if __name__ == "__main__":
             if response.lower() != 'y':
                 sys.exit(1)
         else:
-            print("✓ Hyper-V PowerShell module available")
+            print("[OK] Hyper-V PowerShell module available")
         
         print("\n" + "=" * 70)
-        print("🌐 Starting API server...")
+        print("Starting API server...")
         print("=" * 70)
         print("\n  URL:  http://0.0.0.0:8000")
         print("  Docs: http://localhost:8000/docs")
@@ -1079,12 +1079,12 @@ if __name__ == "__main__":
         
     except KeyboardInterrupt:
         print("\n\n" + "=" * 70)
-        print("⏹️  Server stopped by user")
+        print("Server stopped by user")
         print("=" * 70)
         sys.exit(0)
     except Exception as e:
         print("\n" + "=" * 70)
-        print("❌ FATAL ERROR")
+        print("[FATAL ERROR]")
         print("=" * 70)
         print(f"\nError: {str(e)}")
         print(f"Type: {type(e).__name__}")
