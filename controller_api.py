@@ -25,7 +25,9 @@ except ImportError:
 class CredentialsManager:
     """Manage encrypted credentials storage using Windows DPAPI."""
     
-    def __init__(self, creds_file: str = "vm_controller.dat"):
+    def __init__(self, creds_file: str = "config/credentials.dat"):
+        # Ensure config directory exists
+        os.makedirs(os.path.dirname(creds_file), exist_ok=True)
         self.creds_file = creds_file
     
     def encrypt_data(self, data: str) -> str:
@@ -906,6 +908,23 @@ if __name__ == "__main__":
     import uvicorn
     import sys
     
+    def get_version() -> str:
+        """Get version from embedded version.txt file."""
+        try:
+            # Try to read from bundled file (in exe)
+            if hasattr(sys, '_MEIPASS'):
+                version_file = os.path.join(sys._MEIPASS, 'version.txt')
+            else:
+                # Development mode
+                version_file = os.path.join(os.path.dirname(__file__), 'deploy', 'version.txt')
+            
+            if os.path.exists(version_file):
+                with open(version_file, 'r') as f:
+                    return f.read().strip()
+        except:
+            pass
+        return "1.0.0"
+    
     def interactive_setup(creds_manager: CredentialsManager) -> dict:
         """Interactive setup to collect credentials on first run."""
         print("\n" + "=" * 70)
@@ -987,9 +1006,9 @@ if __name__ == "__main__":
         print("\n" + "=" * 70)
         print("⚠️  IMPORTANT: Save these credentials in a secure location!")
         print("=" * 70)
-        print("\nYour credentials are encrypted in: vm_controller.dat")
+        print("\nYour credentials are encrypted in: config/credentials.dat")
         print("This file is tied to your Windows user account.")
-        print("\nTo reset credentials: Delete vm_controller.dat and restart.\n")
+        print("\nTo reset credentials: Delete config/credentials.dat and restart.\n")
         print("=" * 70)
         input("\nPress Enter to continue...")
         
@@ -1000,8 +1019,9 @@ if __name__ == "__main__":
         }
     
     try:
+        version = get_version()
         print("=" * 70)
-        print("🚀 VM CONTROLLER API")
+        print(f"🚀 VM CONTROLLER API v{version}")
         print("=" * 70)
         print(f"Working directory: {os.getcwd()}")
         
@@ -1014,7 +1034,7 @@ if __name__ == "__main__":
             interactive_setup(creds_manager)
             print("\n✓ Setup complete!")
         elif creds_manager.credentials_exist():
-            print("✓ Encrypted credentials found (vm_controller.dat)")
+            print("✓ Encrypted credentials found (config/credentials.dat)")
         elif os.path.exists(".env"):
             print("✓ Configuration file found (.env)")
         
