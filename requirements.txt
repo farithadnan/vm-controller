@@ -9,6 +9,9 @@ uvicorn[standard]==0.24.0
 # Environment variables
 python-dotenv==1.0.0
 
+# Windows DPAPI for secure credential storage
+pywin32==306
+
 # Optional: For PyInstaller builds
 pyinstaller==6.3.0
 

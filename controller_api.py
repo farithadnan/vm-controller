@@ -3,6 +3,7 @@ import hmac
 import json
 import hashlib
 import subprocess
+import base64
 from typing import Optional, List
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
@@ -11,19 +12,112 @@ from fastapi import FastAPI, HTTPException, Header, Request, Depends
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+# Windows DPAPI for encryption
+try:
+    import win32crypt  # type: ignore
+except ImportError:
+    win32crypt = None
+
+
+# ==============================
+#  Credentials Manager
+# ==============================
+class CredentialsManager:
+    """Manage encrypted credentials storage using Windows DPAPI."""
+    
+    def __init__(self, creds_file: str = "vm_controller.dat"):
+        self.creds_file = creds_file
+    
+    def encrypt_data(self, data: str) -> str:
+        """Encrypt data using Windows DPAPI."""
+        if win32crypt is None:
+            # Fallback: base64 encoding (not secure, but works without pywin32)
+            return base64.b64encode(data.encode()).decode()
+        
+        encrypted = win32crypt.CryptProtectData(
+            data.encode('utf-8'),
+            'VM Controller Credentials',
+            None, None, None, 0
+        )
+        return base64.b64encode(encrypted).decode()
+    
+    def decrypt_data(self, encrypted_data: str) -> str:
+        """Decrypt data using Windows DPAPI."""
+        try:
+            encrypted_bytes = base64.b64decode(encrypted_data.encode())
+            
+            if win32crypt is None:
+                # Fallback: base64 decoding
+                return encrypted_bytes.decode()
+            
+            _, decrypted = win32crypt.CryptUnprotectData(
+                encrypted_bytes, None, None, None, 0
+            )
+            return decrypted.decode('utf-8')
+        except Exception as e:
+            raise ValueError(f"Failed to decrypt credentials: {e}")
+    
+    def save_credentials(self, api_key: str, hmac_secret: str, allow_ips: list):
+        """Save encrypted credentials to file."""
+        credentials = {
+            'api_key': api_key,
+            'hmac_secret': hmac_secret,
+            'allow_ips': allow_ips,
+            'created_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        json_data = json.dumps(credentials)
+        encrypted = self.encrypt_data(json_data)
+        
+        with open(self.creds_file, 'w') as f:
+            f.write(encrypted)
+    
+    def load_credentials(self) -> dict:
+        """Load and decrypt credentials from file."""
+        if not os.path.exists(self.creds_file):
+            return None
+        
+        try:
+            with open(self.creds_file, 'r') as f:
+                encrypted = f.read()
+            
+            json_data = self.decrypt_data(encrypted)
+            return json.loads(json_data)
+        except Exception as e:
+            print(f"Warning: Could not load credentials: {e}")
+            return None
+    
+    def credentials_exist(self) -> bool:
+        """Check if credentials file exists."""
+        return os.path.exists(self.creds_file)
+
 
 # ==============================
 #  Configuration Class
 # ==============================
 class Config:
     """Configuration management class."""
-    def __init__(self):
+    def __init__(self, creds_manager: Optional[CredentialsManager] = None):
+        # Try .env first (for development)
         load_dotenv()
+        
         self.api_key = os.getenv("API_KEY")
         self.hmac_secret = os.getenv("HMAC_SECRET")
-        # Support multiple IPs: "192.168.1.10,192.168.1.20" or single IP
         allow_ip_raw = os.getenv("ALLOW_IP", "")
-        self.allow_ip = [ip.strip() for ip in allow_ip_raw.split(",") if ip.strip()] if allow_ip_raw else []
+        
+        # If .env doesn't have credentials, try encrypted storage
+        if not self.api_key and creds_manager:
+            creds = creds_manager.load_credentials()
+            if creds:
+                self.api_key = creds['api_key']
+                self.hmac_secret = creds['hmac_secret']
+                self.allow_ip = creds['allow_ips']
+            else:
+                raise ValueError("No credentials found")
+        else:
+            # Support comma-separated IPs from .env
+            self.allow_ip = [ip.strip() for ip in allow_ip_raw.split(",") if ip.strip()] if allow_ip_raw else []
+        
         self.log_dir = "logs"
         
         self._validate()
@@ -339,10 +433,23 @@ class IPVerificationMiddleware(BaseHTTPMiddleware):
 # ==============================
 #  Initialize Components
 # ==============================
-config = Config()
-log_manager = LogManager(config)
-hyperv_manager = HyperVManager()
-security_validator = SecurityValidator(config)
+# Config will be initialized in main() or on module import
+config = None
+log_manager = None
+hyperv_manager = None
+security_validator = None
+
+def initialize_components(creds_manager: Optional[CredentialsManager] = None):
+    """Initialize global components."""
+    global config, log_manager, hyperv_manager, security_validator
+    config = Config(creds_manager=creds_manager)
+    log_manager = LogManager(config)
+    hyperv_manager = HyperVManager()
+    security_validator = SecurityValidator(config)
+
+# Try to initialize with .env if available
+if os.path.exists(".env"):
+    initialize_components()
 
 
 # ==============================
@@ -794,4 +901,175 @@ async def restart_vm(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import sys
+    
+    def interactive_setup(creds_manager: CredentialsManager) -> dict:
+        """Interactive setup to collect credentials on first run."""
+        print("\n" + "=" * 70)
+        print("🔧 VM CONTROLLER - FIRST-TIME SETUP")
+        print("=" * 70)
+        print("\nWelcome! Let's configure your VM Controller API.\n")
+        print("Your credentials will be encrypted and stored securely using")
+        print("Windows Data Protection API (DPAPI).\n")
+        print("=" * 70 + "\n")
+        
+        # Get API Key
+        print("1️⃣  API KEY")
+        print("-" * 70)
+        print("This key is used to authenticate API requests.")
+        print("Recommended: Leave empty to generate a secure random key.\n")
+        api_key = input("Enter API_KEY (or press Enter for auto-generate): ").strip()
+        if not api_key:
+            import secrets
+            api_key = secrets.token_hex(32)
+            print(f"✓ Generated: {api_key}\n")
+        else:
+            print(f"✓ Using your key: {api_key}\n")
+        
+        # Get HMAC Secret
+        print("2️⃣  HMAC SECRET")
+        print("-" * 70)
+        print("This secret is used to sign and verify requests.")
+        print("Recommended: Leave empty to generate a secure random secret.\n")
+        hmac_secret = input("Enter HMAC_SECRET (or press Enter for auto-generate): ").strip()
+        if not hmac_secret:
+            import secrets
+            hmac_secret = secrets.token_hex(32)
+            print(f"✓ Generated: {hmac_secret}\n")
+        else:
+            print(f"✓ Using your secret: {hmac_secret}\n")
+        
+        # Get IP Whitelist
+        print("3️⃣  IP WHITELIST")
+        print("-" * 70)
+        print("Restrict API access to specific IP addresses (optional).\n")
+        print("Examples:")
+        print("  • Single IP:    192.168.1.10")
+        print("  • Multiple IPs: 192.168.1.10,192.168.1.20,10.0.0.5")
+        print("  • All IPs:      Leave empty (not recommended for production)\n")
+        allow_ip_input = input("Enter allowed IPs (comma-separated or empty): ").strip()
+        
+        # Parse IPs
+        allow_ips = [ip.strip() for ip in allow_ip_input.split(",") if ip.strip()]
+        
+        if allow_ips:
+            print(f"✓ Allowed IPs: {', '.join(allow_ips)}\n")
+        else:
+            print("⚠️  Warning: All IPs are allowed (any IP can access the API)\n")
+        
+        # Save credentials
+        print("=" * 70)
+        print("💾 SAVING CONFIGURATION")
+        print("=" * 70)
+        print("\nEncrypting and saving credentials...")
+        
+        try:
+            creds_manager.save_credentials(api_key, hmac_secret, allow_ips)
+            print("✅ Credentials saved successfully!\n")
+        except Exception as e:
+            print(f"❌ Error saving credentials: {e}\n")
+            input("Press Enter to exit...")
+            sys.exit(1)
+        
+        # Show summary
+        print("=" * 70)
+        print("📋 CONFIGURATION SUMMARY")
+        print("=" * 70)
+        print(f"\n  API_KEY:     {api_key}")
+        print(f"  HMAC_SECRET: {hmac_secret}")
+        if allow_ips:
+            print(f"  ALLOWED_IPS: {', '.join(allow_ips)}")
+        else:
+            print(f"  ALLOWED_IPS: (all IPs allowed)")
+        print("\n" + "=" * 70)
+        print("⚠️  IMPORTANT: Save these credentials in a secure location!")
+        print("=" * 70)
+        print("\nYour credentials are encrypted in: vm_controller.dat")
+        print("This file is tied to your Windows user account.")
+        print("\nTo reset credentials: Delete vm_controller.dat and restart.\n")
+        print("=" * 70)
+        input("\nPress Enter to continue...")
+        
+        return {
+            'api_key': api_key,
+            'hmac_secret': hmac_secret,
+            'allow_ips': allow_ips
+        }
+    
+    try:
+        print("=" * 70)
+        print("🚀 VM CONTROLLER API")
+        print("=" * 70)
+        print(f"Working directory: {os.getcwd()}")
+        
+        # Initialize credentials manager
+        creds_manager = CredentialsManager()
+        
+        # Check if credentials exist
+        if not creds_manager.credentials_exist() and not os.path.exists(".env"):
+            print("\n⚠️  No credentials found. Starting first-time setup...\n")
+            interactive_setup(creds_manager)
+            print("\n✓ Setup complete!")
+        elif creds_manager.credentials_exist():
+            print("✓ Encrypted credentials found (vm_controller.dat)")
+        elif os.path.exists(".env"):
+            print("✓ Configuration file found (.env)")
+        
+        # Check if Hyper-V is available
+        print("\n🔍 Checking Hyper-V availability...")
+        test_result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "Get-Command Get-VM"],
+            capture_output=True,
+            text=True
+        )
+        
+        if test_result.returncode != 0:
+            print("\n" + "=" * 70)
+            print("❌ WARNING: Hyper-V PowerShell module not found!")
+            print("=" * 70)
+            print("\nThis computer may not have Hyper-V installed.")
+            print("The API will start but VM operations will fail.")
+            print("\nTo install Hyper-V:")
+            print("  1. Open PowerShell as Administrator")
+            print("  2. Run: Enable-WindowsOptionalFeature -Online \\")
+            print("          -FeatureName Microsoft-Hyper-V -All")
+            print("  3. Restart computer")
+            print("=" * 70)
+            response = input("\nContinue anyway? (y/N): ")
+            if response.lower() != 'y':
+                sys.exit(1)
+        else:
+            print("✓ Hyper-V PowerShell module available")
+        
+        print("\n" + "=" * 70)
+        print("🌐 Starting API server...")
+        print("=" * 70)
+        print("\n  URL:  http://0.0.0.0:8000")
+        print("  Docs: http://localhost:8000/docs")
+        print("\n  Press CTRL+C to stop")
+        print("=" * 70 + "\n")
+        
+        # Initialize config with credentials manager
+        initialize_components(creds_manager=creds_manager)
+        
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+        
+    except KeyboardInterrupt:
+        print("\n\n" + "=" * 70)
+        print("⏹️  Server stopped by user")
+        print("=" * 70)
+        sys.exit(0)
+    except Exception as e:
+        print("\n" + "=" * 70)
+        print("❌ FATAL ERROR")
+        print("=" * 70)
+        print(f"\nError: {str(e)}")
+        print(f"Type: {type(e).__name__}")
+        print("\nFull traceback:")
+        import traceback
+        traceback.print_exc()
+        print("=" * 70)
+        input("\nPress Enter to exit...")
+        sys.exit(1)
+
+

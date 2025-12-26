@@ -31,6 +31,13 @@ pyinstaller vm_controller.spec
 # Output will be in deploy/dist/vm_controller/vm_controller.exe
 ```
 
+**Note:** You'll see warnings during build - these are normal and safe:
+- ⚠️ Pydantic V1 compatibility warning → Ignore (you're using V2)
+- ⚠️ `api-ms-win-crt-*.dll` not found → Ignore (built into Windows)
+- ⚠️ `tzdata` not found → Ignore (built into Python 3.9+)
+
+As long as you see `✅ Build complete!` at the end, the executable is working fine.
+
 ### Step 4: Test the Executable
 ```powershell
 cd dist\vm_controller
