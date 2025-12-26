@@ -446,6 +446,14 @@ def initialize_components(creds_manager: Optional[CredentialsManager] = None):
     log_manager = LogManager(config)
     hyperv_manager = HyperVManager()
     security_validator = SecurityValidator(config)
+    
+    # Add middleware after components are initialized
+    if not any(isinstance(m, IPVerificationMiddleware) for m in app.user_middleware):
+        app.add_middleware(
+            IPVerificationMiddleware,
+            log_manager=log_manager,
+            security_validator=security_validator
+        )
 
 # Try to initialize with .env if available
 if os.path.exists(".env"):
@@ -516,12 +524,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add middleware for IP verification and logging
-app.add_middleware(
-    IPVerificationMiddleware,
-    log_manager=log_manager,
-    security_validator=security_validator
-)
+# Middleware will be added by initialize_components()
 
 
 # ==============================
