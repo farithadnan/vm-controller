@@ -433,6 +433,17 @@ class IPVerificationMiddleware(BaseHTTPMiddleware):
 
 
 # ==============================
+#  Initialize FastAPI app (MUST be before initialize_components)
+# ==============================
+app = FastAPI(
+    title="VM Controller API",
+    description="Remote control for Hyper-V virtual machines with state monitoring",
+    version="3.0.0",
+    lifespan=None  # Will be set after components are initialized
+)
+
+
+# ==============================
 #  Initialize Components
 # ==============================
 # Config will be initialized in main() or on module import
@@ -481,14 +492,14 @@ async def verify_authentication(
 #  Lifespan Event Handler
 # ==============================
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app_instance: FastAPI):
     """Handle startup and shutdown events."""
     # Startup
     print("=" * 60)
     print("VM Controller API Started (Enhanced Version)")
     print("=" * 60)
-    print(f"API Key configured: {'✓' if config.api_key else '✗'}")
-    print(f"HMAC Secret configured: {'✓' if config.hmac_secret else '✗'}")
+    print(f"API Key configured: {'[OK]' if config.api_key else '[X]'}")
+    print(f"HMAC Secret configured: {'[OK]' if config.hmac_secret else '[X]'}")
     print(f"IP Whitelisting: {'Enabled (' + ', '.join(config.allow_ip) + ')' if config.allow_ip else 'Disabled'}")
     print(f"Logging directory: {config.log_dir}")
     print("=" * 60)
@@ -496,11 +507,11 @@ async def lifespan(app: FastAPI):
     # Test VM access
     try:
         vms = hyperv_manager.get_all_vm_names()
-        print(f"✓ Hyper-V access verified - {len(vms)} VMs found")
+        print(f"[OK] Hyper-V access verified - {len(vms)} VMs found")
         if vms:
             print(f"  Available VMs: {', '.join(vms)}")
     except Exception as e:
-        print(f"✗ Hyper-V access error: {e}")
+        print(f"[X] Hyper-V access error: {e}")
     
     print("=" * 60)
     print("NEW ENDPOINTS AVAILABLE:")
@@ -515,18 +526,8 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
     # print("Shutting down...")
 
-
-# ==============================
-#  Initialize FastAPI app
-# ==============================
-app = FastAPI(
-    title="VM Controller API",
-    description="Remote control for Hyper-V virtual machines with state monitoring",
-    version="3.0.0",
-    lifespan=lifespan
-)
-
-# Middleware will be added by initialize_components()
+# Set lifespan handler on the app
+app.router.lifespan_context = lifespan
 
 
 # ==============================
