@@ -11,6 +11,19 @@ Write-Host "VM Controller - Build & Deploy" -ForegroundColor Cyan
 Write-Host "============================================================`n" -ForegroundColor Cyan
 
 $projectRoot = Split-Path $PSScriptRoot -Parent
+$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
+
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+} else {
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd) {
+        $pythonExe = $pythonCmd.Source
+    } else {
+        Write-Host "[ERROR] Python not found (.venv or PATH)" -ForegroundColor Red
+        exit 1
+    }
+}
 
 # Read current version
 $versionFile = Join-Path $PSScriptRoot "version.txt"
@@ -82,8 +95,13 @@ if (Test-Path $deploySpec) {
 } else {
     Write-Host "Spec file not found. Creating one from controller_api.py..." -ForegroundColor Yellow
     Push-Location $projectRoot
-    pyinstaller --onefile --name vm_controller --specpath $projectRoot --add-data "deploy/version.txt;." controller_api.py --noconfirm
+    & $pythonExe -m PyInstaller --onefile --name vm_controller --specpath $projectRoot --add-data "deploy/version.txt;." controller_api.py --noconfirm
+    $specGenExitCode = $LASTEXITCODE
     Pop-Location
+    if ($specGenExitCode -ne 0) {
+        Write-Host "[ERROR] Failed to generate spec file" -ForegroundColor Red
+        exit 1
+    }
     if (Test-Path $rootSpec) {
         $specFile = $rootSpec
     } else {
@@ -94,7 +112,7 @@ if (Test-Path $deploySpec) {
 
 # Build with PyInstaller
 Push-Location $projectRoot
-pyinstaller $specFile --noconfirm --clean --distpath $distFolder --workpath $buildFolder
+& $pythonExe -m PyInstaller $specFile --noconfirm --clean --distpath $distFolder --workpath $buildFolder
 $buildExitCode = $LASTEXITCODE
 Pop-Location
 
