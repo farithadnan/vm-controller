@@ -1,5 +1,5 @@
 # VM Controller Build Script with Auto-Versioning
-# Usage: .\build.ps1 [major|minor|patch]
+# Usage: .\build.ps1 -VersionType [major|minor|patch]
 
 param(
     [ValidateSet('major', 'minor', 'patch')]
@@ -9,6 +9,8 @@ param(
 Write-Host "`n============================================================" -ForegroundColor Cyan
 Write-Host "VM Controller - Build & Deploy" -ForegroundColor Cyan
 Write-Host "============================================================`n" -ForegroundColor Cyan
+
+$projectRoot = Split-Path $PSScriptRoot -Parent
 
 # Read current version
 $versionFile = Join-Path $PSScriptRoot "version.txt"
@@ -51,8 +53,11 @@ Set-Content -Path $versionFile -Value $newVersion -NoNewline
 
 Write-Host "`nUpdating version.txt..." -ForegroundColor Cyan
 
+# Build folders at project root
+$distFolder = Join-Path $projectRoot "dist"
+$buildFolder = Join-Path $projectRoot "build"
+
 # Copy version to dist for tracking
-$distFolder = Join-Path $PSScriptRoot "dist"
 if (-not (Test-Path $distFolder)) {
     New-Item -ItemType Directory -Path $distFolder -Force | Out-Null
 }
@@ -66,15 +71,47 @@ Write-Host "`n============================================================" -For
 Write-Host "Building executable..." -ForegroundColor Cyan
 Write-Host "============================================================`n" -ForegroundColor Cyan
 
-# Build with PyInstaller
-pyinstaller vm_controller.spec --noconfirm --clean
+# Find spec file (prefer deploy/, fallback project root)
+$deploySpec = Join-Path $PSScriptRoot "vm_controller.spec"
+$rootSpec = Join-Path $projectRoot "vm_controller.spec"
 
-if ($LASTEXITCODE -eq 0) {
+if (Test-Path $deploySpec) {
+    $specFile = $deploySpec
+} elseif (Test-Path $rootSpec) {
+    $specFile = $rootSpec
+} else {
+    Write-Host "Spec file not found. Creating one from controller_api.py..." -ForegroundColor Yellow
+    Push-Location $projectRoot
+    pyinstaller --onefile --name vm_controller --specpath $projectRoot --add-data "deploy/version.txt;." controller_api.py --noconfirm
+    Pop-Location
+    if (Test-Path $rootSpec) {
+        $specFile = $rootSpec
+    } else {
+        Write-Host "[ERROR] Failed to create vm_controller.spec" -ForegroundColor Red
+        exit 1
+    }
+}
+
+# Build with PyInstaller
+Push-Location $projectRoot
+pyinstaller $specFile --noconfirm --clean --distpath $distFolder --workpath $buildFolder
+$buildExitCode = $LASTEXITCODE
+Pop-Location
+
+if ($buildExitCode -eq 0) {
+    $latestExe = Join-Path $distFolder "vm_controller.exe"
+    $versionedExe = Join-Path $distFolder "vm_controller-$newVersion.exe"
+
+    if (Test-Path $latestExe) {
+        Copy-Item -Path $latestExe -Destination $versionedExe -Force
+    }
+
     Write-Host "`n============================================================" -ForegroundColor Green
     Write-Host "Build successful!" -ForegroundColor Green
     Write-Host "============================================================" -ForegroundColor Green
     Write-Host "`nVersion:  $newVersion" -ForegroundColor White
-    Write-Host "Location: $distFolder\vm_controller.exe" -ForegroundColor White
+    Write-Host "Latest:   $distFolder\vm_controller.exe" -ForegroundColor White
+    Write-Host "Tagged:   $distFolder\vm_controller-$newVersion.exe" -ForegroundColor White
     Write-Host "History:  $historyFile" -ForegroundColor White
     Write-Host "`n============================================================`n" -ForegroundColor Green
 } else {
