@@ -1,437 +1,130 @@
-# VM Controller (Hyper-V Remote VM Control API )
+# VM Controller API
 
-A lightweight, secure FastAPI service that allows you to remotely start, stop, restart, and list Hyper-V virtual machines running on **Computer B**.
-
-This API is designed for a setup where:
-
-- **Computer A** (client machine or chatbot agent)  
-  needs to remotely control Hyper-V VMs.
-
-- **Computer B** (server machine)  
-  hosts the VMs and exposes **this secured API** on your LAN.
-
-This service integrates:
-- API Key verification  
-- Optional IP allow-listing  
-- HMAC-signed requests  
-- Audit logging + structured JSON logs  
-- Safe PowerShell execution (no prompts)
+Simple FastAPI server to control Hyper-V VMs remotely.
 
 ---
 
-# ✨ Features
+## What this project does
 
-- **List all Hyper-V VMs**
-- **Start a VM**
-- **Shutdown a VM (force)**
-- **Restart a VM (force)**
-- **API Key authentication**
-- **HMAC SHA-256 signature validation**
-- **IP address filtering (applied to all endpoints)**
-- **Request logging at entry point (before authentication)**
-- **Audit logs for every action**
-- **JSON logs for programmatic use**
-- **Safe PowerShell execution with optional `-Confirm:$false`**
-- **Middleware-based security architecture**
-- **Dependency injection for clean code**
+- List VMs
+- Get VM state/details
+- Start / shutdown / restart VMs
+- Protect requests with API key + HMAC
+- Log requests and VM actions
 
 ---
 
-# 🖥️ Architecture Overview
+## 1) Quick setup (Windows)
 
-```md
-Computer A (Client)
-|
-| → HTTPS / LAN Request
-| - API Key Header
-| - HMAC Signature (Body + Timestamp)
-v
-Computer B (Hyper-V Host Running FastAPI Server)
-|
-→ Executes PowerShell commands safely
+From project root:
+
+```powershell
+py -3.10 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.sample .env
 ```
 
-
-This design removes the need to expose PowerShell Remoting or SMB shares and gives you a simple REST interface instead — perfect for automation, bots, or monitoring tools.
-
----
-
-# ⚙️ Requirements on Computer B
-
-- Windows 10/11 or Windows Server running **Hyper-V**
-- Python 3.10+
-- `pip install fastapi uvicorn python-dotenv`
-- PowerShell available in PATH
-- Script must be run with permissions to control VMs
-- Might need to make port `8000` available to your LAN.
-
----
-
-# 📂 Project Files
-
-```
-vm-controller/
-├── controller_api.py              # Original procedural version
-├── README.md                      # This file
-├── .env                          # Configuration (create this)
-└── logs/                         # Auto-created
-    ├── audit.log                 # VM operation logs
-    └── app.log                   # Request/application logs
-```
-
----
-
-# 🔐 `.env` Configuration
-
-Create a file named `.env` in the same directory as the script:
+Edit `.env`:
 
 ```env
-API_KEY=your-super-secret-api-key
-HMAC_SECRET=your-hmac-secret
-ALLOW_IP=192.168.x.x
+API_KEY=your_api_key_here
+HMAC_SECRET=your_hmac_secret_here
+ALLOW_IP=
 ```
 
-## Meaning of each:
-
-| Variable      | Purpose                                                                     |
-| ------------- | --------------------------------------------------------------------------- |
-| `API_KEY`     | Client must send `x-api-key` header. Prevents unauthorized access.          |
-| `HMAC_SECRET` | Secret for SHA-256 request signing. Prevents tampering/replay attacks.      |
-| `ALLOW_IP`    | Optional. Only allow requests from this IP address. Leave blank to disable. |
-
+Notes:
+- `ALLOW_IP` empty = allow any IP
+- Use strong random values for `API_KEY` and `HMAC_SECRET`
 
 ---
 
-# 🚀 Running the Server
+## 2) Run in development
 
-This project includes **two versions** of the same API:
+```powershell
+python controller_api.py
+```
 
-## Option 1: Original (Procedural)
-```sh
+or
+
+```powershell
 uvicorn controller_api:app --host 0.0.0.0 --port 8000
 ```
-**Use when**: Learning, quick prototyping, simple deployment
 
-## Option 2: Refactored (Object-Oriented)
-```sh
-uvicorn controller_api_refactored:app --host 0.0.0.0 --port 8000
-```
-**Use when**: Production, team projects, extensive testing needed
-
-Both versions have **identical functionality**. See `OOP_REFACTORING_GUIDE.md` for details.
+Check:
+- Health: `http://localhost:8000/health`
+- Swagger: `http://localhost:8000/docs`
 
 ---
 
-# 📦 Deployment
+## 3) Test in development
 
-## Deployment Options
-
-### Option 1: Windows Service (Recommended for Production)
-Runs as a Windows service with auto-restart, auto-start on boot, and better reliability:
-```powershell
-cd deploy
-powershell -ExecutionPolicy Bypass -File install_service.ps1
-```
-
-### Option 2: Standalone Executable
-Create a portable `.exe` file that can run without Python installed:
-```powershell
-cd deploy
-pyinstaller vm_controller.spec
-# Output: deploy/dist/vm_controller/vm_controller.exe
-```
-
-### 📖 Complete Guide
-For detailed instructions, troubleshooting, and all deployment methods, see:
-**[Deployment Guide](deploy/DEPLOYMENT_GUIDE.md)**
-
-The guide covers:
-- ✅ Windows Service installation (NSSM) - auto-start, auto-restart
-- ✅ Creating standalone executables (PyInstaller) - portable, no Python needed
-- ✅ Startup configuration (Task Scheduler, Startup folder)
-- ✅ Service management and troubleshooting
-- ✅ Remote access configuration
-
----
-
-# 🧪 Testing
-
-This project includes a comprehensive test suite.
+Install test deps (if needed):
 
 ```powershell
-# Install test dependencies
 pip install pytest pytest-asyncio pytest-cov httpx
+```
 
-# Run all tests
+Run tests:
+
+```powershell
 pytest tests/ -v
+```
 
-# Run with coverage report
+Run with coverage:
+
+```powershell
 pytest tests/ --cov=controller_api --cov-report=html
 ```
 
-**📖 Complete Testing Guide**: See **[tests/TEST_GUIDE.md](tests/TEST_GUIDE.md)** for:
-- Test structure and categories (unit, integration, edge cases)
-- Writing new tests
-- Debugging failed tests
-- CI/CD integration examples
-- Coverage details by component
-
 ---
 
-# 📁 Logs
+## 4) Build and deployment
 
-The script automatically creates a logs directory with **two separate log files** for different purposes:
+README keeps this section short on purpose.
 
-```md
-logs/
- ├─ audit.log   (forensic record of VM operations only)
- └─ app.log     (all API requests and application events)
-```
+Use this guide as the single source of truth for build/deploy/release:
 
-## Understanding the Two Logging Methods
+- `deploy/DEPLOYMENT_GUIDE.md`
 
-### 🎯 `write_audit()` → `audit.log`
+Quick command to check build/run status:
 
-**Purpose**: Compliance and forensic tracking of **VM state changes only**
-
-**When to use**: Only logs actual VM operations (start, stop, restart)
-
-**Why separate?**: 
-- Legal/compliance requirements to track infrastructure changes
-- Audit who changed what VM and when
-- Separate from general access logs for security analysis
-
-**Example entry**:
-
-```json
-{
-  "timestamp": "2025-01-01T12:00:00Z",
-  "action": "restart",
-  "vm": "UbuntuVM",
-  "client_ip": "192.168.1.20",
-  "status": "ok",
-  "details": "Restarting machine"
-}
-```
-
-## `app.log` - Request & Application Logs
-
-**New Feature**: Logs every request at entry point (before authentication):
-
-```json
-{
-  "timestamp": "2025-12-03T10:30:15.123456",
-  "method": "POST",
-  "path": "/vm/UbuntuVM/start",
-  "client_ip": "192.168.1.20",
-  "status": "received",
-  "details": "Headers: {...}"
-}
-```
-
-Also logs IP rejections:
-
-```json
-{
-  "timestamp": "2025-12-03T10:31:00.000000",
-  "method": "GET",
-  "path": "/vm/list",
-  "client_ip": "192.168.1.99",
-  "status": "rejected",
-  "details": "IP 192.168.1.99 not in whitelist"
-}
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\check_build_status.ps1
 ```
 
 ---
 
-# 🔒 Security Architecture
+## API auth (for bot/client)
 
-## Three-Layer Security Model
+Protected endpoints require headers:
 
-### 1. **Middleware Layer (All Endpoints)**
-- **IP Whitelisting**: Automatically applied to all endpoints via middleware
-- **Request Logging**: Every request is logged at entry point before any processing
-- No manual verification needed in endpoint code
+- `x-api-key`
+- `x-signature`
+- `x-timestamp`
 
-### 2. **Authentication Layer (Protected Endpoints)**
-Applied automatically via dependency injection to `/vm/list`, `/start`, `/shutdown`, `/restart`:
+Signature formula:
 
-**API Key (required)** - Client must send header:
-
-```sh
-x-api-key: YOUR_API_KEY
-```
-
-**HMAC Signing (required)** - Signature formula:
-
-```sh
-signature = HEX( HMAC_SHA256( HMAC_SECRET, body + timestamp ) )
-```
-
-Client must send:
-
-```md
-x-signature: <hex-hmac>
-x-timestamp: <unix timestamp or ISO>
-```
-
-### 3. **Authorization Layer**
-- VM existence validation
-- Audit logging of all actions
-
----
-
-# 📡 API Endpoints
-
-## Health Check
-
-Request:
-
-```bash
-GET /health
-```
-
-Response:
-
-```json
-{
-  "status": "healthy",
-  "vm_count": 3,
-  "timestamp": "2025-12-03T10:30:00.000000"
-}
-```
-
-**Security**: IP whitelisting applied (if configured)
-
----
-
-## List all VMs
-
-Request:
-
-```bash
-GET /vm/list
-```
-
-Required Headers:
-
-```md
-x-api-key: <API_KEY>
-x-signature: <HMAC>
-x-timestamp: <timestamp>
-```
-
-Response:
-
-```json
-{
-  "vms": ["Windows10", "UbuntuServer", "TestVM"]
-}
-```
-
-**Security**: Full authentication required (API key + HMAC signature + IP whitelisting)
-
----
-
-## Start a VM
-
-Request:
-
-```bash
-POST /vm/{vm_name}/start
-```
-
-Required Headers:
-
-```md
-x-api-key: <API_KEY>
-x-signature: <HMAC>
-x-timestamp: <timestamp>
-```
-
-Body:
-
-```bash
-# RAW
-{}
-```
-
-Response
-
-```json
-{
-  "vm": "UbuntuServer",
-  "action": "start",
-  "output": "VM started successfully"
-}
-```
----
-
-## Shutdown a VM
-
-Request:
-
-```bash
-POST /vm/{vm_name}/shutdown
-```
-
-Required Headers:
-
-```md
-x-api-key: <API_KEY>
-x-signature: <HMAC>
-x-timestamp: <timestamp>
-```
-
-Body:
-
-```bash
-# RAW
-{}
-```
-
-Response:
-
-```json
-{
-  "vm": "Windows10",
-  "action": "shutdown",
-  "output": "VM stopped"
-}
+```text
+HEX(HMAC_SHA256(HMAC_SECRET, body + timestamp))
 ```
 
 ---
 
-## Restart a VM
+## Project folders (important)
 
-Request:
+- `deploy/` → scripts + version metadata
+- `build/` → temporary PyInstaller files
+- `dist/` → final executables
+- `logs/` → app and audit logs
 
-```bash
-POST /vm/{vm_name}/restart
-```
+---
 
-Required Headers:
+## Daily workflow (recommended)
 
-```md
-x-api-key: <API_KEY>
-x-signature: <HMAC>
-x-timestamp: <timestamp>
-```
-
-Body:
-
-```bash
-# RAW
-{}
-```
-
-Response:
-
-```json
-{
-  "vm": "TestVM",
-  "action": "restart",
-  "output": "VM restarted",
-  "status": "success"
-}
-```
+1. Create branch: `release/exe-vX.Y.Z`
+2. Make code changes
+3. Run `pytest`
+4. Follow `deploy/DEPLOYMENT_GUIDE.md` to build and deploy
+5. Run `deploy/check_build_status.ps1`
+6. Test `dist/vm_controller.exe`
