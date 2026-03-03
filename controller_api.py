@@ -707,6 +707,93 @@ if __name__ == "__main__":
             pass
         return "1.0.0"
 
+    def interactive_setup(creds_manager: CredentialsManager) -> dict:
+        """Interactive setup to collect credentials on first run."""
+        print("\n" + "=" * 70)
+        print("VM CONTROLLER - FIRST-TIME SETUP")
+        print("=" * 70)
+        print("\nWelcome! Let's configure your VM Controller API.\n")
+        print("Your credentials will be encrypted and stored securely using")
+        print("Windows Data Protection API (DPAPI).\n")
+        print("=" * 70 + "\n")
+
+        print("[1] API KEY")
+        print("-" * 70)
+        print("This key is used to authenticate API requests.")
+        print("Recommended: Leave empty to generate a secure random key.\n")
+        api_key = input("Enter API_KEY (or press Enter for auto-generate): ").strip()
+        if not api_key:
+            import secrets
+            api_key = secrets.token_hex(32)
+            print(f"✓ Generated: {api_key}\n")
+        else:
+            print(f"✓ Using your key: {api_key}\n")
+
+        print("[2] HMAC SECRET")
+        print("-" * 70)
+        print("This secret is used to sign and verify requests.")
+        print("Recommended: Leave empty to generate a secure random secret.\n")
+        hmac_secret = input("Enter HMAC_SECRET (or press Enter for auto-generate): ").strip()
+        if not hmac_secret:
+            import secrets
+            hmac_secret = secrets.token_hex(32)
+            print(f"✓ Generated: {hmac_secret}\n")
+        else:
+            print(f"✓ Using your secret: {hmac_secret}\n")
+
+        print("[3] IP WHITELIST")
+        print("-" * 70)
+        print("Restrict API access to specific IP addresses (optional).\n")
+        print("Examples:")
+        print("  • Single IP:    192.168.1.10")
+        print("  • Multiple IPs: 192.168.1.10,192.168.1.20,10.0.0.5")
+        print("  • All IPs:      Leave empty (not recommended for production)\n")
+        allow_ip_input = input("Enter allowed IPs (comma-separated or empty): ").strip()
+
+        allow_ips = [ip.strip() for ip in allow_ip_input.split(",") if ip.strip()]
+
+        if allow_ips:
+            print(f"[OK] Allowed IPs: {', '.join(allow_ips)}\n")
+        else:
+            print("[WARNING] All IPs are allowed (any IP can access the API)\n")
+
+        print("=" * 70)
+        print("SAVING CONFIGURATION")
+        print("=" * 70)
+        print("\nEncrypting and saving credentials...")
+
+        try:
+            creds_manager.save_credentials(api_key, hmac_secret, allow_ips)
+            print("[SUCCESS] Credentials saved successfully!\n")
+        except Exception as e:
+            print(f"[ERROR] Error saving credentials: {e}\n")
+            input("Press Enter to exit...")
+            sys.exit(1)
+
+        print("=" * 70)
+        print("CONFIGURATION SUMMARY")
+        print("=" * 70)
+        print(f"\n  API_KEY:     {api_key}")
+        print(f"  HMAC_SECRET: {hmac_secret}")
+        if allow_ips:
+            print(f"  ALLOWED_IPS: {', '.join(allow_ips)}")
+        else:
+            print(f"  ALLOWED_IPS: (all IPs allowed)")
+        print("\n" + "=" * 70)
+        print("[IMPORTANT] Save these credentials in a secure location!")
+        print("=" * 70)
+        print("\nYour credentials are encrypted in: config/credentials.dat")
+        print("This file is tied to your Windows user account.")
+        print("\nTo reset credentials: Delete config/credentials.dat and restart.\n")
+        print("=" * 70)
+        input("\nPress Enter to continue...")
+
+        return {
+            'api_key': api_key,
+            'hmac_secret': hmac_secret,
+            'allow_ips': allow_ips
+        }
+
     try:
         version = get_version()
         print("=" * 70)
@@ -716,7 +803,11 @@ if __name__ == "__main__":
 
         creds_manager = CredentialsManager()
 
-        if creds_manager.credentials_exist():
+        if not creds_manager.credentials_exist() and not os.path.exists(".env"):
+            print("\n[WARNING] No credentials found. Starting first-time setup...\n")
+            interactive_setup(creds_manager)
+            print("\n[OK] Setup complete!")
+        elif creds_manager.credentials_exist():
             print("[OK] Encrypted credentials found (config/credentials.dat)")
         elif os.path.exists(".env"):
             print("[OK] Configuration file found (.env)")
