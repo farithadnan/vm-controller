@@ -2,7 +2,9 @@ import os
 import hmac
 import json
 import hashlib
+import shutil
 import subprocess
+import tempfile
 import base64
 from typing import Optional, List
 from datetime import datetime, timezone
@@ -122,6 +124,10 @@ class Config:
 
         self.log_dir = "logs"
 
+        # File server paths for centralized script execution
+        self.script_server_path = os.getenv("SCRIPT_SERVER_PATH", "")
+        self.script_whitelist_path = os.getenv("SCRIPT_WHITELIST_PATH", "")
+
         self._validate()
         self._ensure_log_dir()
 
@@ -209,13 +215,140 @@ class LogManager:
 
 
 # ==============================
+#  Script Executor Class
+# ==============================
+class ScriptExecutor:
+    """Handles fetch -> validate -> execute -> cleanup of file server scripts."""
+
+    def __init__(self, config: Config, log_manager: LogManager):
+        self.server_path = config.script_server_path
+        self.whitelist_path = config.script_whitelist_path
+        self.log_manager = log_manager
+        self._temp_dir = os.path.join(tempfile.gettempdir(), "vm_controller_scripts")
+        os.makedirs(self._temp_dir, exist_ok=True)
+
+    @property
+    def enabled(self) -> bool:
+        """Check if file server script execution is configured."""
+        return bool(self.server_path and self.whitelist_path)
+
+    def _fetch_script(self, script_name: str) -> str:
+        """Copy script from file server to local temp. Returns local path."""
+        source = os.path.join(self.server_path, script_name)
+        if not os.path.isfile(source):
+            raise FileNotFoundError(f"Script '{script_name}' not found on file server: {source}")
+
+        local_path = os.path.join(self._temp_dir, script_name)
+        shutil.copy2(source, local_path)
+        return local_path
+
+    def _validate_hash(self, script_name: str, local_path: str) -> bool:
+        """Validate SHA256 hash of local script against whitelist."""
+        hashes_file = os.path.join(self.whitelist_path, "hashes.json")
+        if not os.path.isfile(hashes_file):
+            raise FileNotFoundError(f"Whitelist file not found: {hashes_file}")
+
+        with open(hashes_file, "r", encoding="utf-8") as f:
+            whitelist = json.load(f)
+
+        expected_hash = whitelist.get(script_name)
+        if not expected_hash:
+            raise ValueError(f"Script '{script_name}' not in whitelist")
+
+        sha256 = hashlib.sha256()
+        with open(local_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+        actual_hash = sha256.hexdigest()
+
+        if not hmac.compare_digest(actual_hash, expected_hash):
+            raise ValueError(
+                f"Hash mismatch for '{script_name}': "
+                f"expected {expected_hash}, got {actual_hash}"
+            )
+        return True
+
+    def _cleanup(self, local_path: str):
+        """Delete local script copy."""
+        try:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+        except OSError:
+            pass
+
+    def execute(self, script_name: str, params: dict = None, timeout: int = 120) -> dict:
+        """
+        Fetch, validate, execute, and cleanup a script from the file server.
+
+        Returns dict with: exit_code, stdout, stderr
+        """
+        local_path = None
+        try:
+            # 1. Fetch
+            local_path = self._fetch_script(script_name)
+
+            # 2. Validate
+            self._validate_hash(script_name, local_path)
+
+            # 3. Build command
+            cmd = [
+                "powershell", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass", "-File", local_path
+            ]
+            if params:
+                for key, value in params.items():
+                    cmd.extend([f"-{key}", str(value)])
+
+            # 4. Execute
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout
+            )
+
+            self.log_manager.write_app_log({
+                "action": "script_execute",
+                "script": script_name,
+                "params": params or {},
+                "exit_code": result.returncode,
+                "status": "success" if result.returncode == 0 else "failed"
+            })
+
+            return {
+                "exit_code": result.returncode,
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip()
+            }
+
+        except subprocess.TimeoutExpired:
+            self.log_manager.write_app_log({
+                "action": "script_execute",
+                "script": script_name,
+                "status": "timeout"
+            })
+            return {"exit_code": -1, "stdout": "", "stderr": f"Script timed out after {timeout}s"}
+
+        except (FileNotFoundError, ValueError) as e:
+            self.log_manager.write_app_log({
+                "action": "script_execute",
+                "script": script_name,
+                "status": "validation_failed",
+                "details": str(e)
+            })
+            raise
+
+        finally:
+            # 5. Always cleanup
+            if local_path:
+                self._cleanup(local_path)
+
+
+# ==============================
 #  Hyper-V Manager Class
 # ==============================
 class HyperVManager:
     """Manages Hyper-V virtual machine operations."""
 
-    def __init__(self):
-        pass
+    def __init__(self, script_executor: ScriptExecutor = None):
+        self.script_executor = script_executor
 
     def get_all_vm_names(self) -> List[str]:
         """Get list of all VM names from Hyper-V."""
@@ -317,7 +450,19 @@ class HyperVManager:
         return self._run_powershell(f'Stop-VM -Name "{vm_name}" -Force', force_no_confirm=True)
 
     def restart_vm(self, vm_name: str) -> str:
-        """Restart a virtual machine."""
+        """Restart a virtual machine via file server script (or inline fallback)."""
+        if self.script_executor and self.script_executor.enabled:
+            result = self.script_executor.execute(
+                "vm_restart.ps1", params={"VMName": vm_name}
+            )
+            output = result["stdout"] or result["stderr"]
+            if result["exit_code"] == 2:
+                raise HTTPException(status_code=404, detail=f"VM '{vm_name}' not found")
+            if result["exit_code"] != 0:
+                raise HTTPException(status_code=500, detail=f"Script failed: {output}")
+            return output
+
+        # Fallback: inline PowerShell (when file server not configured)
         return self._run_powershell(f'Restart-VM -Name "{vm_name}" -Force', force_no_confirm=True)
 
     def _run_powershell(self, cmd: str, force_no_confirm: bool = False, timeout: int = 45) -> str:
@@ -466,13 +611,15 @@ config = None
 log_manager = None
 hyperv_manager = None
 security_validator = None
+script_executor = None
 
 def initialize_components(creds_manager: Optional[CredentialsManager] = None):
     """Initialize global components."""
-    global config, log_manager, hyperv_manager, security_validator
+    global config, log_manager, hyperv_manager, security_validator, script_executor
     config = Config(creds_manager=creds_manager)
     log_manager = LogManager(config)
-    hyperv_manager = HyperVManager()
+    script_executor = ScriptExecutor(config, log_manager)
+    hyperv_manager = HyperVManager(script_executor=script_executor)
     security_validator = SecurityValidator(config)
 
     # Add middleware after components are initialized
