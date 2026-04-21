@@ -7,7 +7,7 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
 # Environment variables
-python-dotenv==1.0.0
+python-dotenv==1.2.2
 
 # Windows DPAPI for secure credential storage
 pywin32==306
