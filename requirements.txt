@@ -16,7 +16,7 @@ pywin32==306
 pyinstaller==6.3.0
 
 # Development dependencies (testing)
-pytest==7.4.3
+pytest==9.0.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
 httpx==0.25.2
